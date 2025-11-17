@@ -236,6 +236,6 @@ server.on('upgrade', (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => { wss.emit('connection', ws, request); });
 });
 
-server.listen(8080, () => {
+server.listen(5008, () => {
     console.log(`Server running on 8080. Send POST to /update.`);
 });
