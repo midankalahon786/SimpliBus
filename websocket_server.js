@@ -2,10 +2,12 @@
  * REAL-TIME BUS TRACKING WEBSOCKET SERVER (Node.js)
  * CORRECTED VERSION: Calculates ETA, Distance, and Next Stop
  * UPDATED: Now includes Route 1 Road Path for Google Maps
+ * REFACTORED: Port moved to .env file
  */
 
 const http = require('http');
 const { WebSocketServer } = require('ws');
+require('dotenv').config(); // <-- [CHANGE 1] Load environment variables
 
 // --- ROUTE PATHS (Co-ordinates for drawing the road line) ---
 // These are the coordinates you provided, converted to {lat, lng} format
@@ -236,6 +238,10 @@ server.on('upgrade', (request, socket, head) => {
     wss.handleUpgrade(request, socket, head, (ws) => { wss.emit('connection', ws, request); });
 });
 
-server.listen(5008, () => {
-    console.log(`Server running on 8080. Send POST to /update.`);
+// --- [CHANGE 2] Read port from .env, with a fallback to 5008 ---
+const PORT = process.env.PORT || 5008;
+
+// --- [CHANGE 3] Use the PORT variable and fix the log message ---
+server.listen(PORT, () => {
+    console.log(`Server running on ${PORT}. Send POST to /update.`);
 });
