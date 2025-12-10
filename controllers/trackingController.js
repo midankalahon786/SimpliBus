@@ -4,76 +4,123 @@ const { broadcastUpdate } = require('../services/websocket');
 
 // Runtime State
 const busStates = {};
-const AVERAGE_BUS_SPEED_KPH = 20;
+const AVERAGE_BUS_SPEED_KPH = 25;
 const AVERAGE_BUS_SPEED_MPS = AVERAGE_BUS_SPEED_KPH * 1000 / 3600;
-const ARRIVAL_THRESHOLD_METERS = 50;
+const ARRIVAL_THRESHOLD_METERS = 100;
+
+// --- HELPER: Find the closest stop on the route ---
+const findCorrectStopIndex = (currentLat, currentLng, routeStops) => {
+    let closestIndex = 0;
+    let minDistance = Infinity;
+
+    for (let i = 0; i < routeStops.length; i++) {
+        const stop = routeStops[i];
+        const dist = getHaversineDistance(currentLat, currentLng, stop.lat, stop.lng);
+        if (dist < minDistance) {
+            minDistance = dist;
+            closestIndex = i;
+        }
+    }
+
+    // Refinement: If we are very close (<50m) to the closest stop, assume we are 'at' it
+    // and target the next one. Otherwise, target the closest one as the destination.
+    if (minDistance < 50 && closestIndex < routeStops.length - 1) {
+        return closestIndex + 1;
+    }
+
+    return closestIndex;
+};
 
 const updateLocation = (req, res) => {
     try {
         const data = req.body;
-        console.log('Raw Update Received:', data.busId);
 
         // 1. Initialize State if needed
         if (!busStates[data.busId]) {
             const now = new Date();
             const isAfternoon = now.getHours() >= 12;
             const direction = isAfternoon ? 'stopsReturn' : 'stops';
-            
+
             let routeKey = 'route1';
             if (data.busId.toLowerCase().includes('r2')) {
                 routeKey = 'route2';
             }
-            
+
+            // [FIX] Initial Auto-Correction
+            // Instead of defaulting to 0, find where the bus ACTUALLY is right now.
+            const routeStops = busSchedule[routeKey][direction];
+            const startIndex = findCorrectStopIndex(data.lat, data.lng, routeStops);
+
             busStates[data.busId] = {
                 routeKey: routeKey,
-                routeStops: busSchedule[routeKey][direction],
-                nextStopIndex: 0,
+                routeStops: routeStops,
+                nextStopIndex: startIndex, // Start at the correct spot
                 seatStatus: "Seats Available"
             };
-            console.log(`Initialized state for ${data.busId}`);
+            console.log(`Initialized ${data.busId} at Index ${startIndex} (${routeStops[startIndex].name})`);
         }
 
         const state = busStates[data.busId];
+        if (data.seatStatus) state.seatStatus = data.seatStatus;
 
-        // 2. Update Seat Status
-        if (data.seatStatus) {
-            state.seatStatus = data.seatStatus;
+        // 2. Logic Check: Are we way off track?
+        // If the distance to the "Current Target" is huge (> 2km),
+        // we probably missed a bunch of updates or initialized wrong. Recalibrate.
+        let currentTarget = state.routeStops[state.nextStopIndex];
+        let distToCurrent = getHaversineDistance(data.lat, data.lng, currentTarget.lat, currentTarget.lng);
+
+        if (distToCurrent > 2000) { // 2km tolerance
+            console.log(`[${data.busId}] Drift detected (Target: ${currentTarget.name} is ${Math.round(distToCurrent)}m away). Recalibrating...`);
+            state.nextStopIndex = findCorrectStopIndex(data.lat, data.lng, state.routeStops);
+            // Re-fetch target after update
+            currentTarget = state.routeStops[state.nextStopIndex];
+            distToCurrent = getHaversineDistance(data.lat, data.lng, currentTarget.lat, currentTarget.lng);
         }
 
-        // 3. Calculate Logic
-        if (state.nextStopIndex >= state.routeStops.length) state.nextStopIndex = 0;
+        // 3. Normal Advance Logic (Strict Mode)
+        if (state.nextStopIndex < state.routeStops.length - 1) {
+            const nextTarget = state.routeStops[state.nextStopIndex + 1];
+            const distToNext = getHaversineDistance(data.lat, data.lng, nextTarget.lat, nextTarget.lng);
 
-        let nextStop = state.routeStops[state.nextStopIndex];
-        let distanceToNextStop = getHaversineDistance(data.lat, data.lng, nextStop.lat, nextStop.lng);
-
-        if (distanceToNextStop < ARRIVAL_THRESHOLD_METERS) {
-            console.log(`Bus ${data.busId} arrived at ${nextStop.name}`);
-            state.nextStopIndex++;
-            if (state.nextStopIndex < state.routeStops.length) {
-                nextStop = state.routeStops[state.nextStopIndex];
-                distanceToNextStop = getHaversineDistance(data.lat, data.lng, nextStop.lat, nextStop.lng);
+            if (distToCurrent < ARRIVAL_THRESHOLD_METERS) {
+                console.log(`[${data.busId}] ✅ Arrived at ${currentTarget.name}`);
+                state.nextStopIndex++;
+                // Update pointers for display
+                currentTarget = nextTarget;
+                distToCurrent = distToNext;
+            } else if (distToNext < ARRIVAL_THRESHOLD_METERS) {
+                console.log(`[${data.busId}] ⏩ Skipped to ${nextTarget.name}`);
+                state.nextStopIndex++;
+                currentTarget = nextTarget;
+                distToCurrent = distToNext;
+            }
+        } else {
+            // End of route reset
+            if (distToCurrent < ARRIVAL_THRESHOLD_METERS) {
+                console.log(`[${data.busId}] 🏁 Route Completed. Resetting.`);
+                state.nextStopIndex = 0;
+                currentTarget = state.routeStops[0];
+                distToCurrent = getHaversineDistance(data.lat, data.lng, currentTarget.lat, currentTarget.lng);
             }
         }
 
-        const etaMinutes = Math.round((distanceToNextStop / AVERAGE_BUS_SPEED_MPS) / 60);
-        const formattedDistance = distanceToNextStop < 1000 ? 
-            `${Math.round(distanceToNextStop)}m` : 
-            `${(distanceToNextStop / 1000).toFixed(1)}km`;
+        // 4. Prepare Payload
+        const etaMinutes = Math.round((distToCurrent / AVERAGE_BUS_SPEED_MPS) / 60);
+        const formattedDistance = distToCurrent < 1000 ?
+            `${Math.round(distToCurrent)}m` :
+            `${(distToCurrent / 1000).toFixed(1)}km`;
 
         const enhancedPayload = {
             ...data,
             route: busSchedule[state.routeKey].name,
-            nextStop: nextStop.name,
+            nextStop: currentTarget.name,
             nextStopIndex: state.nextStopIndex,
             distance: formattedDistance,
             eta: etaMinutes,
             seatStatus: state.seatStatus
         };
 
-        // 4. Broadcast via WebSocket Service
-        console.log("Broadcasting Payload:", JSON.stringify(enhancedPayload));
         broadcastUpdate(enhancedPayload);
-
         res.status(200).json({ status: 'success', received: enhancedPayload });
 
     } catch (e) {

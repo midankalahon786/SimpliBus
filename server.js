@@ -7,7 +7,7 @@ const { initWebSocket } = require('./services/websocket');
 require('dotenv').config();
 
 // 1. Connect to DB
-connectDB();
+connectDB().then(r => {});
 
 // 2. Init Express
 const app = express();

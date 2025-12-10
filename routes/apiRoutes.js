@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
-const { loginDriver } = require('../controllers/authController');
+const { loginDriver, resetPasswordWithOtp} = require('../controllers/authController');
 const { updateLocation, getSchedule, getBuses } = require('../controllers/trackingController');
 
 // Driver Routes
 router.post('/driver/login', loginDriver);
+router.post('/forgot-password', resetPasswordWithOtp);
 
 // Tracking Routes
 router.post('/update', updateLocation);

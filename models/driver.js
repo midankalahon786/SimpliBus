@@ -1,24 +1,33 @@
 const mongoose = require('mongoose');
 
 const driverSchema = new mongoose.Schema({
-    driverId: { 
-        type: String, 
-        required: true, 
+    driverId: {
+        type: String,
+        required: true,
         unique: true,
         uppercase: true,
-        trim: true 
+        trim: true
     },
-    name: { 
-        type: String, 
-        required: true 
+    name: {
+        type: String,
+        required: true
     },
-    busId: { 
-        type: String, 
-        required: true 
+    busId: {
+        type: String,
+        required: true
     },
-    passwordHash: { 
-        type: String, 
-        required: true 
+    passwordHash: {
+        type: String,
+        required: true
+    },
+    // --- NEW FIELDS FOR PASSWORD RESET ---
+    resetPasswordToken: {
+        type: String,
+        default: null
+    },
+    resetPasswordExpires: {
+        type: Date,
+        default: null
     }
 });
 
