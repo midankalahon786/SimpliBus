@@ -2,13 +2,11 @@ const { busSchedule, availableBuses } = require('../data/busData');
 const { getHaversineDistance } = require('../utils/geometry');
 const { broadcastUpdate } = require('../services/websocket');
 
-// Runtime State
 const busStates = {};
 const AVERAGE_BUS_SPEED_KPH = 25;
 const AVERAGE_BUS_SPEED_MPS = AVERAGE_BUS_SPEED_KPH * 1000 / 3600;
 const ARRIVAL_THRESHOLD_METERS = 100;
 
-// --- HELPER: Find the closest stop on the route ---
 const findCorrectStopIndex = (currentLat, currentLng, routeStops) => {
     let closestIndex = 0;
     let minDistance = Infinity;
@@ -21,9 +19,6 @@ const findCorrectStopIndex = (currentLat, currentLng, routeStops) => {
             closestIndex = i;
         }
     }
-
-    // Refinement: If we are very close (<50m) to the closest stop, assume we are 'at' it
-    // and target the next one. Otherwise, target the closest one as the destination.
     if (minDistance < 50 && closestIndex < routeStops.length - 1) {
         return closestIndex + 1;
     }
@@ -34,8 +29,6 @@ const findCorrectStopIndex = (currentLat, currentLng, routeStops) => {
 const updateLocation = (req, res) => {
     try {
         const data = req.body;
-
-        // 1. Initialize State if needed
         if (!busStates[data.busId]) {
             const now = new Date();
             const isAfternoon = now.getHours() >= 12;
@@ -45,16 +38,13 @@ const updateLocation = (req, res) => {
             if (data.busId.toLowerCase().includes('r2')) {
                 routeKey = 'route2';
             }
-
-            // [FIX] Initial Auto-Correction
-            // Instead of defaulting to 0, find where the bus ACTUALLY is right now.
             const routeStops = busSchedule[routeKey][direction];
             const startIndex = findCorrectStopIndex(data.lat, data.lng, routeStops);
 
             busStates[data.busId] = {
                 routeKey: routeKey,
                 routeStops: routeStops,
-                nextStopIndex: startIndex, // Start at the correct spot
+                nextStopIndex: startIndex,
                 seatStatus: "Seats Available"
             };
             console.log(`Initialized ${data.busId} at Index ${startIndex} (${routeStops[startIndex].name})`);
@@ -62,22 +52,15 @@ const updateLocation = (req, res) => {
 
         const state = busStates[data.busId];
         if (data.seatStatus) state.seatStatus = data.seatStatus;
-
-        // 2. Logic Check: Are we way off track?
-        // If the distance to the "Current Target" is huge (> 2km),
-        // we probably missed a bunch of updates or initialized wrong. Recalibrate.
         let currentTarget = state.routeStops[state.nextStopIndex];
         let distToCurrent = getHaversineDistance(data.lat, data.lng, currentTarget.lat, currentTarget.lng);
 
-        if (distToCurrent > 2000) { // 2km tolerance
+        if (distToCurrent > 2000) {
             console.log(`[${data.busId}] Drift detected (Target: ${currentTarget.name} is ${Math.round(distToCurrent)}m away). Recalibrating...`);
             state.nextStopIndex = findCorrectStopIndex(data.lat, data.lng, state.routeStops);
-            // Re-fetch target after update
             currentTarget = state.routeStops[state.nextStopIndex];
             distToCurrent = getHaversineDistance(data.lat, data.lng, currentTarget.lat, currentTarget.lng);
         }
-
-        // 3. Normal Advance Logic (Strict Mode)
         if (state.nextStopIndex < state.routeStops.length - 1) {
             const nextTarget = state.routeStops[state.nextStopIndex + 1];
             const distToNext = getHaversineDistance(data.lat, data.lng, nextTarget.lat, nextTarget.lng);
@@ -85,7 +68,6 @@ const updateLocation = (req, res) => {
             if (distToCurrent < ARRIVAL_THRESHOLD_METERS) {
                 console.log(`[${data.busId}] ✅ Arrived at ${currentTarget.name}`);
                 state.nextStopIndex++;
-                // Update pointers for display
                 currentTarget = nextTarget;
                 distToCurrent = distToNext;
             } else if (distToNext < ARRIVAL_THRESHOLD_METERS) {
@@ -95,7 +77,6 @@ const updateLocation = (req, res) => {
                 distToCurrent = distToNext;
             }
         } else {
-            // End of route reset
             if (distToCurrent < ARRIVAL_THRESHOLD_METERS) {
                 console.log(`[${data.busId}] 🏁 Route Completed. Resetting.`);
                 state.nextStopIndex = 0;
@@ -103,8 +84,6 @@ const updateLocation = (req, res) => {
                 distToCurrent = getHaversineDistance(data.lat, data.lng, currentTarget.lat, currentTarget.lng);
             }
         }
-
-        // 4. Prepare Payload
         const etaMinutes = Math.round((distToCurrent / AVERAGE_BUS_SPEED_MPS) / 60);
         const formattedDistance = distToCurrent < 1000 ?
             `${Math.round(distToCurrent)}m` :

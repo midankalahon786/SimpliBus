@@ -3,7 +3,6 @@ const crypto = require('crypto'); // Import Node.js crypto module
 const Driver = require('../models/driver');
 const {generateOTP, sendOTP} = require("../services/otpService");
 
-// --- Existing Login Logic ---
 const loginDriver = async (req, res) => {
     try {
         const { driverId, password } = req.body;
@@ -33,16 +32,12 @@ const forgotPassword = async (req, res) => {
         if (!driver) {
             return res.status(404).json({ message: "Driver ID not found" });
         }
-
-        // 1. Use the Service to generate OTP
         const otp = generateOTP();
 
-        // 2. Save to DB
         driver.resetPasswordToken = otp;
-        driver.resetPasswordExpires = Date.now() + 10 * 60 * 1000; // 10 mins
+        driver.resetPasswordExpires = Date.now() + 10 * 60 * 1000;
         await driver.save();
 
-        // 3. Use the Service to "Send" it
         await sendOTP(driver.name, driver.driverId, otp);
 
         res.status(200).json({ message: "OTP sent successfully" });
@@ -53,8 +48,6 @@ const forgotPassword = async (req, res) => {
     }
 };
 
-// --- NEW: Verify OTP & Reset Password ---
-// You will need this route to actually use the OTP
 const resetPasswordWithOtp = async (req, res) => {
     try {
         const { driverId, otp, newPassword } = req.body;
@@ -62,18 +55,16 @@ const resetPasswordWithOtp = async (req, res) => {
         const driver = await Driver.findOne({
             driverId: driverId.toUpperCase(),
             resetPasswordToken: otp,
-            resetPasswordExpires: { $gt: Date.now() } // Check if not expired
+            resetPasswordExpires: { $gt: Date.now() }
         });
 
         if (!driver) {
             return res.status(400).json({ message: "Invalid or expired OTP" });
         }
 
-        // Hash the new password
         const salt = await bcrypt.genSalt(10);
         driver.passwordHash = await bcrypt.hash(newPassword, salt);
 
-        // Clear the OTP fields
         driver.resetPasswordToken = null;
         driver.resetPasswordExpires = null;
 

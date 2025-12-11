@@ -20,7 +20,6 @@ const driverSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    // --- NEW FIELDS FOR PASSWORD RESET ---
     resetPasswordToken: {
         type: String,
         default: null
