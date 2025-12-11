@@ -42,11 +42,11 @@
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="screenshots/login.png" width="200" alt="Login Screen">
+  <img src="./screenshots/login.png" width="200" alt="Login Screen">
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="screenshots/tracking.png" width="200" alt="Live Tracking">
+  <img src="./screenshots/tracking.png" width="200" alt="Live Tracking">
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="screenshots/schedule.png" width="200" alt="Offline Schedule">
+  <img src="./screenshots/schedule.png" width="200" alt="Offline Schedule">
 </p>
 
 | **Driver Login** | **Live Tracking** | **Offline Schedule** |
